@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+google-genai
+httpx
+beautifulsoup4
+python-dotenv
+pydantic
+dnspython
+email-validator
+aiosmtplib
+cachetools
+groq
+python-multipart
