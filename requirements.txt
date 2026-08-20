@@ -11,3 +11,4 @@ aiosmtplib
 cachetools
 groq
 python-multipart
+pixelrag

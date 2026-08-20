@@ -200,3 +200,179 @@
   box-shadow: var(--shadow-sm);
 }
 
+/* ── Top Navigation Tabs ─────────────────────────────────────────────────────── */
+.top-nav-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 32px;
+  flex-wrap: wrap;
+}
+
+.nav-tab-btn {
+  padding: 12px 22px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-sub);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+.nav-tab-btn.active {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(168, 85, 247, 0.25));
+  border: 1px solid rgba(139, 92, 246, 0.5);
+  color: #ffffff;
+  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.2);
+}
+
+/* ── Intern ID Card React Component Styles ──────────────────────────────────── */
+.intern-card-wrapper {
+  background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+  border-radius: 20px;
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 30px rgba(139, 92, 246, 0.2);
+  overflow: hidden;
+  position: relative;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.intern-card-header {
+  background: linear-gradient(90deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.intern-card-title {
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.intern-badge-pill {
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(8px);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  color: #ffffff;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.intern-card-body {
+  padding: 28px 24px;
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.intern-avatar {
+  width: 76px;
+  height: 76px;
+  min-width: 76px;
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 26px;
+  font-weight: 800;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+}
+
+.intern-info {
+  flex: 1;
+}
+
+.intern-name {
+  font-size: 20px;
+  font-weight: 800;
+  color: #f8fafc;
+  margin-bottom: 4px;
+}
+
+.intern-role {
+  font-size: 13px;
+  font-weight: 600;
+  color: #818cf8;
+  margin-bottom: 12px;
+}
+
+.intern-meta-grid {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.intern-meta-label {
+  display: block;
+  color: #64748b;
+  font-size: 9px;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.intern-card-footer {
+  background: rgba(15, 23, 42, 0.8);
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+  padding: 12px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  color: #64748b;
+}
+
+/* Intern Table */
+.intern-table-container {
+  max-height: 280px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.intern-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.intern-table th {
+  padding: 10px 14px;
+  text-align: left;
+  background: #181825;
+  color: var(--text-sub);
+  position: sticky;
+  top: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.intern-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text-main);
+}
+
+

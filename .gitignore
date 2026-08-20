@@ -34,10 +34,15 @@ frontend/.next/
 # Data files (may contain client PII)
 sent_history.csv
 sent_history.json
+sale_sent_history.csv
 clients.csv
+interns.csv
+last_session.json
+warmup_tracker.json
 
 # Generated previews
 email_preview.html
 
 # Claude config
 .claude/
+

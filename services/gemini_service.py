@@ -11,6 +11,7 @@ network timeout), the system automatically retries with GROQ_API_KEY_2 (secondar
 """
 
 import os
+import re
 import logging
 from typing import Optional, Tuple, List
 from groq import AsyncGroq
@@ -54,7 +55,8 @@ def _get_groq_clients() -> List[AsyncGroq]:
 
 # ── Gemini Client Pool (used when ALL Groq keys fail) ─────────────────────────
 
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-3.1-pro-preview"]
+GEMINI_MODEL = "gemini-2.5-flash"
 
 
 def _get_gemini_keys() -> List[str]:
@@ -70,22 +72,89 @@ def _get_gemini_keys() -> List[str]:
 async def _call_gemini(api_key: str, prompt: str, max_tokens: int, temperature: float) -> str:
     """Call Gemini API with a single key and return the response text."""
     client = genai.Client(api_key=api_key)
-    response = await client.aio.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-        config=genai_types.GenerateContentConfig(
-            max_output_tokens=max_tokens,
-            temperature=temperature,
-        ),
-    )
-    return response.text
+    last_err = None
+    for model_candidate in GEMINI_MODELS:
+        try:
+            response = await client.aio.models.generate_content(
+                model=model_candidate,
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(
+                    max_output_tokens=max_tokens,
+                    temperature=temperature,
+                ),
+            )
+            return response.text
+        except Exception as e:
+            last_err = e
+            logger.warning(f"Gemini model '{model_candidate}' failed: {e}")
+            continue
+    raise last_err or RuntimeError("All Gemini models failed")
+
+
+# ── Gemini Vision (used by PixelRAG fallback) ─────────────────────────────────
+
+VISION_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"]
+
+
+async def _call_gemini_vision(
+    image_bytes: bytes,
+    prompt: str,
+    mime_type: str = "image/jpeg",
+    max_tokens: int = 1500,
+    temperature: float = 0.2,
+) -> str:
+    """
+    Send an image + text prompt to Gemini Vision and return the response text.
+    Cycles through all configured Gemini API keys on failure.
+    """
+    keys = _get_gemini_keys()
+    if not keys:
+        raise RuntimeError("No Gemini API keys configured for vision fallback")
+
+    last_err = None
+    for key_idx, api_key in enumerate(keys):
+        client = genai.Client(api_key=api_key)
+        for model_candidate in VISION_MODELS:
+            try:
+                image_part = genai_types.Part.from_bytes(
+                    data=image_bytes,
+                    mime_type=mime_type,
+                )
+                response = await client.aio.models.generate_content(
+                    model=model_candidate,
+                    contents=[image_part, prompt],
+                    config=genai_types.GenerateContentConfig(
+                        max_output_tokens=max_tokens,
+                        temperature=temperature,
+                    ),
+                )
+                key_label = f"GEMINI-{key_idx + 1}"
+                logger.info(
+                    f"[{key_label}] Vision call succeeded with '{model_candidate}'"
+                )
+                return response.text
+            except Exception as e:
+                last_err = e
+                logger.warning(
+                    f"Gemini Vision '{model_candidate}' (key {key_idx + 1}) failed: {e}"
+                )
+                continue
+
+    raise last_err or RuntimeError("All Gemini Vision models/keys failed")
+
+
+GROQ_MODELS = [
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.6-27b",
+]
 
 
 async def _groq_create_with_fallback(
     messages: list,
-    model: str = "llama-3.3-70b-versatile",
+    model: Optional[str] = None,
     temperature: float = 0.8,
-    max_completion_tokens: int = 600,
+    max_completion_tokens: int = 2000,
     label: str = "",
 ) -> str:
     """
@@ -97,36 +166,41 @@ async def _groq_create_with_fallback(
     # ── Step 1: Try all Groq keys ─────────────────────────────────────────────
     groq_clients = _get_groq_clients()
     last_error: Optional[Exception] = None
+    target_models = [model] if model else GROQ_MODELS
 
     for idx, client in enumerate(groq_clients):
         key_label = "PRIMARY" if idx == 0 else f"FALLBACK-{idx}"
-        try:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_completion_tokens=max_completion_tokens,
-            )
-            if idx > 0:
-                logger.info(
-                    f"[GROQ {key_label}] Succeeded for '{label}' after earlier key failure."
+        for groq_model in target_models:
+            try:
+                response = await client.chat.completions.create(
+                    model=groq_model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_completion_tokens=max_completion_tokens,
                 )
-            return response.choices[0].message.content
+                content = response.choices[0].message.content
+                if not content or len(content.strip()) < 30:
+                    raise ValueError(f"Empty or truncated content from {groq_model}")
 
-        except Exception as e:
-            last_error = e
-            logger.warning(
-                f"[GROQ {key_label}] Failed for '{label}': {type(e).__name__}: {e}"
-            )
-            if idx < len(groq_clients) - 1:
-                logger.info(
-                    f"[GROQ] Retrying with next Groq key ({idx + 2}/{len(groq_clients)})..."
+                if idx > 0 or groq_model != target_models[0]:
+                    logger.info(
+                        f"[GROQ {key_label} ({groq_model})] Succeeded for '{label}'."
+                    )
+                return content.strip()
+
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    f"[GROQ {key_label} ({groq_model})] Failed for '{label}': {type(e).__name__}: {e}"
                 )
+                continue
 
-    logger.warning(
-        f"[GROQ] All {len(groq_clients)} Groq key(s) exhausted for '{label}'. "
-        f"Switching to Gemini fallback..."
-    )
+
+    if groq_clients:
+        logger.warning(
+            f"[GROQ] All {len(groq_clients)} Groq key(s) exhausted for '{label}'. "
+            f"Switching to Gemini fallback..."
+        )
 
     # ── Step 2: Fall back to Gemini keys ─────────────────────────────────────
     # Build a single combined prompt string from the messages list
@@ -225,26 +299,50 @@ About Nexariza AI:
 {nexariza_description}
 
 ═══════════════════════════════════════════════════════
-GOLDEN RULES FOR THE EMAIL:
+GOLDEN RULES FOR THE EMAIL (HIGH ENGAGEMENT, ANTI-SPAM & WHITELISTING COMPLIANCE):
 ═══════════════════════════════════════════════════════
-1. START WITH THE PAIN — Open by directly acknowledging the client's specific problem_statement.
-   Do NOT start with "I hope this email finds you well" or generic openers.
-2. PITCH THE SOLUTION — Reference the specific recommended_ai_solution and/or recommended_web_solution
-   that Nexariza offers for their exact pain point.
-3. TAILOR TO THEIR INDUSTRY & SIZE — A 10-person retail startup gets a different tone than a 
-   500-person enterprise SaaS company. Adjust complexity, urgency, and ROI framing accordingly.
-4. MATCH BUYING INTENT ENERGY:
+1. HIGH ENGAGEMENT SUBJECT LINES & CONTENT (RULE 4):
+   - Subject line: Keep it intriguing, highly relevant, short (3-7 words), and personalized to their specific business (e.g., "Quick idea for [Company Name]'s workflow").
+   - Content: Deeply personalized, high-value, professional, and conversational.
+   - Reply Invitation: ALWAYS end with a low-friction question that encourages the recipient to reply (e.g., "Would you be open to a quick 15-minute call?", "Should I send over a 2-minute demo video?").
+   - Goal: Maximize Open Rate and Reply Rate.
+
+2. AVOID SPAM TRIGGERS & STRICT SINGLE-LINK POLICY (RULE 6):
+   - STRICTLY ZERO LINKS IN BODY: Do NOT insert any URLs, website links, or http/https addresses in the body text. The automated system includes the single official website link (www.nexariza.com) in the signature card.
+   - BAN SPAM WORDS: NEVER use prohibited sales/spam words like "FREE", "URGENT", "LIMITED TIME", "CLICK HERE NOW", "BUY NOW", "GUARANTEED", "100%", "SPECIAL OFFER", "ACT NOW", "RISK-FREE", "DISCOUNT", "MONEY BACK", "WINNER", "NO COST".
+   - NO ALL CAPS TEXT: Do not write words or sentences in ALL CAPS.
+   - NO EMOJIS: Do not use emojis in subject line or email body.
+   - NO SUSPICIOUS ATTACHMENTS: Never attach files or say "see attached".
+
+3. WHITELISTING & UNSUBSCRIBE COMPLIANCE (RULES 5 & 7):
+   - Maintain a polished, respectful, professional tone.
+   - Include a courteous whitelisting line near the sign-off: "Please add me to your contacts so our emails reach your inbox."
+   - The automated email builder will attach the official legal unsubscribe link in the footer.
+
+4. NO GENERIC AI OPENERS (STRICT BANS) — NEVER start with clichés like:
+   - "Hope this email finds you well..."
+   - "I wanted to reach out..."
+   - "We provide AI automation..."
+   - "I came across your profile..."
+
+5. HYPER-PERSONALIZED HOOK — ALWAYS open by directly referencing specific details about their company, founder/CEO, product, job posting, recent news, or specific detected website flaw. Start directly with a natural greeting: "Hi [Name]," followed immediately by their specific context or pain point.
+
+6. PITCH THE SOLUTION & AI CAPABILITIES — Reference the specific recommended_ai_solution and/or recommended_web_solution that Nexariza offers for their exact pain point. Explicitly state what AI development and system upgradation Nexariza would do for the client (Custom ML, NLP, Computer Vision, Generative AI pipelines, AI Agents, Workflow Automation).
+
+7. CONCRETE VALUE PROP & SOCIAL PROOF — Provide a specific outcome (e.g., "save 20 hours a week", "cut processing time by 40%") and one real social proof metric.
+
+8. MATCH BUYING INTENT ENERGY:
    - High intent → Confident, direct CTA: "Let's schedule a call this week"
    - Medium intent → Soft CTA: "Would you be open to a quick 15-minute discovery call?"
-   - Low intent → Educational, nurturing tone: "Happy to share how other [industry] companies solved this"
-5. USE THEIR TITLE — Technical titles (CTO, VP Engineering) get technical language.
-   Executive titles (CEO, COO) get ROI and business impact language.
-6. MENTION CITY/REGION if it adds local relevance or builds rapport.
-7. BE CONCISE — Max 150 words in the body. No buzzwords. No excessive flattery.
-8. END with a soft call-to-action appropriate to their buying intent.
-9. SIGN OFF AS: Hassan Nadeem, Nexariza AI
+   - Low intent → Educational tone: "Happy to share how other companies solved this"
 
-Output FORMAT (strictly follow this — no extra commentary):
+9. BE CONCISE — Max 120-180 words in the body. Natural plain-text style.
+
+10. DO NOT WRITE A SIGN-OFF OR SIGNATURE — End the body with ONLY "Best," on its own line. Do NOT include any name, title, phone number, email address, website, or contact info after it. The official Nexariza branded signature (Ahmad Yasin, logo, phone, website, social links) is appended automatically by the email system.
+
+CRITICAL: Output ONLY the final email starting directly with "SUBJECT:". Do NOT write any preamble, drafting steps, reasoning thoughts, or commentary.
+
+Output FORMAT (strictly follow this — no extra text):
 SUBJECT: <subject line here>
 ---
 <email body here>
@@ -278,6 +376,7 @@ def _build_prompt(
     estimated_project_value: Optional[str] = None,
     estimated_timeline: Optional[str] = None,
     notes: Optional[str] = None,
+    website_flaws: Optional[str] = None,   # Formatted output from flaw_analyzer
 ) -> str:
 
     # ── Section 1: Contact Info ──────────────────────────────────────────────
@@ -344,6 +443,14 @@ def _build_prompt(
     if notes:
         intel_lines.append(f"Additional Notes: {notes}")
 
+    # ── Section 5: Website Flaw Audit (highest priority hook) ────────────────
+    flaw_lines = []
+    if website_flaws:
+        flaw_lines.append(
+            "⚡ WEBSITE AUDIT INTELLIGENCE (PRIORITY — open the email with one of these flaws):\n"
+            + website_flaws
+        )
+
     # ── Assemble Full Prompt ─────────────────────────────────────────────────
     sections = []
 
@@ -355,6 +462,8 @@ def _build_prompt(
         sections.append("[ WEBSITE CONTEXT ]\n" + "\n".join(website_lines))
     if intel_lines:
         sections.append("[ STRATEGIC INTELLIGENCE ]\n" + "\n".join(intel_lines))
+    if flaw_lines:
+        sections.append("[ WEBSITE AUDIT INTELLIGENCE ]\n" + "\n".join(flaw_lines))
 
     client_context = "\n\n".join(sections)
     system = SYSTEM_PROMPT.format(nexariza_description=NEXARIZA_DESCRIPTION)
@@ -373,31 +482,127 @@ def _build_prompt(
 
 def _parse_gemini_response(response_text: str) -> Tuple[str, str]:
     """
-    Parse Groq output into (subject, body).
+    Parse Groq/Gemini output into (subject, body).
     Expected format:
         SUBJECT: <subject>
         ---
         <body>
+
+    Handles reasoning models with <think>...</think> blocks, drafting notes,
+    markdown fences, and truncated outputs gracefully.
     """
-    lines = response_text.strip().splitlines()
-    subject = "How Nexariza AI Can Help Your Business"
-    body_lines = []
-    in_body = False
+    cleaned = response_text.strip()
 
-    for line in lines:
-        if line.upper().startswith("SUBJECT:"):
-            subject = line[8:].strip()
-        elif line.strip() == "---":
-            in_body = True
-        elif in_body:
-            body_lines.append(line)
+    # 1. If </think> is present, take everything after </think>
+    if "</think>" in cleaned:
+        cleaned = cleaned.split("</think>")[-1].strip()
 
-    # Fallback: if no separator found, treat everything after subject as body
-    if not body_lines and not in_body:
-        body_lines = [l for l in lines if not l.upper().startswith("SUBJECT:")]
+    # Strip markdown code fence wrappers
+    cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
+    cleaned = re.sub(r"\n?```$", "", cleaned).strip()
 
-    body = "\n".join(body_lines).strip()
+    # Look for the LAST occurrence of SUBJECT: (handling bullet points, stars, prefixes)
+    subject_matches = list(re.finditer(r"(?im)^[#* \t\-\d\.]*(?:SUBJECT|Subject):\s*(.+)$", cleaned))
+    if subject_matches:
+        last_subj = subject_matches[-1]
+        subject = last_subj.group(1).strip().strip("*").strip('"').strip("'")
+        after_subject = cleaned[last_subj.end():].strip()
+
+        # Check for separator (---) or Body: tag
+        sep_match = re.search(r"(?m)^(?:---|___|\*\*\*)\s*$", after_subject)
+        body_tag_match = re.search(r"(?im)^[#* \t\-\d\.]*(?:Body|BODY):\s*", after_subject)
+
+        if sep_match:
+            body = after_subject[sep_match.end():].strip()
+        elif body_tag_match:
+            body = after_subject[body_tag_match.end():].strip()
+        else:
+            body = after_subject
+    else:
+        # Standard line by line fallback
+        lines = cleaned.splitlines()
+        subject = "How Nexariza AI Can Help Your Business"
+        body_lines = []
+        in_body = False
+        for line in lines:
+            stripped = line.strip().lstrip("#*- \t")
+            if not in_body:
+                if stripped.upper().startswith("SUBJECT:"):
+                    subject = stripped[8:].strip().strip("*").strip('"').strip("'")
+                elif stripped in ("---", "___", "***") or stripped.upper().startswith("BODY:"):
+                    in_body = True
+            else:
+                body_lines.append(line)
+        body = "\n".join(body_lines).strip() if body_lines else cleaned
+
     return subject, body
+
+
+
+
+
+# ── Spam Trigger Sanitizer & Compliance Checker ─────────────────────────────
+
+SPAM_TRIGGER_PATTERNS = [
+    r"\bfree\b", r"\burgent\b", r"\blimited time\b", r"\bclick here now\b",
+    r"\bbuy now\b", r"\bguaranteed\b", r"\b100%\b", r"\bspecial offer\b",
+    r"\bact now\b", r"\brisk-free\b", r"\brisk free\b", r"\bdiscount\b",
+    r"\bmoney back\b", r"\bwinner\b", r"\bcongratulations\b", r"\bno cost\b",
+    r"\bclick below\b", r"\border now\b"
+]
+
+ALLOWED_ACRONYMS = {"AI", "ML", "API", "CRM", "CEO", "CTO", "SAAS", "NLP", "HTML", "CSS", "DNS", "SMTP", "RAG", "FAQ", "USD", "ROI", "CSV", "JSON", "URL", "PDF", "HTTP", "HTTPS", "IT"}
+
+
+def cleanse_and_validate_email(subject: str, body: str) -> Tuple[str, str, dict]:
+    """
+    Programmatic validation & cleansing for email content:
+    - Removes spam trigger words ('FREE', 'URGENT', 'LIMITED TIME', etc.)
+    - Normalizes unintended ALL CAPS text
+    - Ensures single link limit
+    - Checks for whitelisting and unsubscribe compliance
+    """
+    import re
+    warnings = []
+
+    # 1. Detect & sanitize spam trigger words
+    for pattern in SPAM_TRIGGER_PATTERNS:
+        if re.search(pattern, subject, re.IGNORECASE):
+            warnings.append(f"Sanitized spam word in subject: '{pattern}'")
+            subject = re.sub(pattern, "", subject, flags=re.IGNORECASE).strip()
+        if re.search(pattern, body, re.IGNORECASE):
+            warnings.append(f"Sanitized spam word in body: '{pattern}'")
+            body = re.sub(pattern, "", body, flags=re.IGNORECASE).strip()
+
+    # 2. Fix ALL CAPS words (excluding allowed technical acronyms)
+    def _fix_caps(match):
+        word = match.group(0)
+        if word in ALLOWED_ACRONYMS:
+            return word
+        warnings.append(f"Normalized ALL CAPS word: '{word}'")
+        return word.capitalize()
+
+    subject = re.sub(r'\b[A-Z]{2,}\b', _fix_caps, subject)
+    body = re.sub(r'\b[A-Z]{2,}\b', _fix_caps, body)
+
+    # 3. Strictly limit links: remove any URLs from email body so the ONLY link is the signature website link
+    urls = re.findall(r'https?://[^\s<>")]+', body)
+    if urls:
+        warnings.append(f"Removed {len(urls)} body link(s) to enforce strict single-link limit in signature.")
+        for u in urls:
+            body = body.replace(u, "")
+        # Clean up empty brackets or leftover artifacts like () or []
+        body = re.sub(r'\(\s*\)', '', body)
+        body = re.sub(r'\[\s*\]', '', body)
+        body = re.sub(r'  +', ' ', body)
+
+    report = {
+        "is_clean": len(warnings) == 0,
+        "warnings": warnings,
+        "spam_score": max(0, 100 - (len(warnings) * 15))
+    }
+
+    return subject, body, report
 
 
 # ── Main Generator ────────────────────────────────────────────────────────────
@@ -427,10 +632,11 @@ async def generate_outreach_email(
     estimated_project_value: Optional[str] = None,
     estimated_timeline: Optional[str] = None,
     notes: Optional[str] = None,
+    website_flaws: Optional[str] = None,   # Formatted flaw report from flaw_analyzer
 ) -> Tuple[str, str]:
     """
     Generates a hyper-personalized outreach email using Groq + all lead intel fields.
-    Returns (subject, body) tuple.
+    Returns (subject, body) tuple, pre-sanitized against spam triggers.
     """
     prompt = _build_prompt(
         name=name,
@@ -456,16 +662,54 @@ async def generate_outreach_email(
         estimated_project_value=estimated_project_value,
         estimated_timeline=estimated_timeline,
         notes=notes,
+        website_flaws=website_flaws,
     )
 
     try:
         raw_text = await _groq_create_with_fallback(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.8,
-            max_completion_tokens=600,
+            max_completion_tokens=2000,
             label=f"{company_name or name} ({email})",
         )
         subject, body = _parse_gemini_response(raw_text)
+
+        # ── Body Quality Gate ────────────────────────────────────────────────
+        # Reject truncated or garbage AI output before it ever reaches send_email().
+        # A real cold email is at least 80 characters and must contain a sentence.
+        MIN_BODY_LENGTH = 80
+        if not body or len(body) < MIN_BODY_LENGTH:
+            raise RuntimeError(
+                f"AI returned a suspiciously short email body ({len(body)} chars) "
+                f"for {name} ({email}). Raw AI output: {repr(raw_text[:200])}. "
+                "Aborting to prevent sending a broken email."
+            )
+
+        # ── Reasoning Leak Safety Gate ───────────────────────────────────────
+        # Reject outputs where the AI leaked internal prompt evaluation checklists
+        REASONING_LEAK_PATTERNS = [
+            r"(?i)\b\d+[-–]\d+\s*words\?\s*(?:yes|no)\b",
+            r"(?i)\bno\s+(?:spam\s+words|links\s+in\s+body|generic\s+openers)\?",
+            r"(?i)\bthinking\s+process\b",
+            r"(?i)\bdrafting\s*[-:]\s*(?:subject|body)\b",
+            r"(?i)\bconstraint\s*check\b",
+            r"(?i)\bword\s+count\s+analysis\b",
+            r"(?i)\bresult:\s*no\s+links\b",
+            r"(?i)\bintriguing\?\s*yes\b",
+            r"(?i)\bpersonalized\?\s*yes\b",
+        ]
+        for pat in REASONING_LEAK_PATTERNS:
+            if re.search(pat, subject) or re.search(pat, body):
+                raise RuntimeError(
+                    f"AI leaked internal reasoning checklist (matched '{pat}') "
+                    f"for {name} ({email}). Aborting output to retry fallback."
+                )
+
+        # Enforce anti-spam cleansing and formatting validation
+        subject, body, report = cleanse_and_validate_email(subject, body)
+        if report["warnings"]:
+            logger.info(f"Email sanitized for {email}: {report['warnings']}")
+
         company_label = company_name or name
         logger.info(f"Generated email for {company_label} ({email}) | Lead Score: {lead_score} | Intent: {buying_intent}")
         return subject, body
@@ -495,10 +739,13 @@ Message:
 
 Rules for your response:
 - Directly, politely, and professionally address their questions, concerns, or interest.
-- Maintain a helpful, conversational, and direct tone (avoid corporate buzzwords).
+- Maintain a helpful, conversational, and direct plain-text tone.
+- NO SPAM WORDS: Do not use words like "FREE", "URGENT", "BUY NOW", "100%", "WINNER", "CLICK HERE".
+- NO EMOJIS & NO ALL CAPS.
+- MAXIMUM 1 LINK IN TOTAL: If adding a link, include at most 1 link (https://nexariza.com).
 - Keep the response short and clear (max 150 words).
 - Only write the email body. Do not include any Subject line or header separators.
-- Sign off as: Hassan Nadeem, Nexariza AI
+- Sign off cleanly as: Hassan Nadeem | Nexariza AI
 """
 
 

@@ -36,153 +36,92 @@ logger = logging.getLogger(__name__)
 # ── Nexariza Brand Assets ─────────────────────────────────────────────────────
 NEXARIZA_LOGO_URL   = "https://nexariza.com/Nexariza%203d%20Logo.webp"
 NEXARIZA_WEBSITE    = "https://nexariza.com"
-NEXARIZA_LINKEDIN   = "https://www.linkedin.com/company/nexariza/"
+NEXARIZA_WHATSAPP   = "https://wa.me/923707348001"
 NEXARIZA_EMAIL      = "contact@nexariza.com"
 NEXARIZA_PHONE      = "+92-370-7348001"
 
 
 # ── HTML Email Builder ────────────────────────────────────────────────────────
 
+# Nexariza branded HTML signature — strictly 1 clickable link (www.nexariza.com) for optimal deliverability
+_NEXARIZA_HTML_SIGNATURE = """
+<table cellpadding="0" cellspacing="0" border="0"
+       style="font-family:Arial,Helvetica,sans-serif;margin-top:24px;border-top:2px solid #1a73e8;padding-top:16px;">
+  <tr>
+    <!-- Logo -->
+    <td style="vertical-align:middle;padding-right:18px;">
+      <img src="https://nexariza.com/Nexariza%203d%20Logo.webp"
+           alt="Nexariza AI" width="72" height="72"
+           style="border-radius:50%;border:2px solid #1a73e8;display:block;"
+           onerror="this.style.display='none'" />
+    </td>
+    <!-- Name / Title -->
+    <td style="vertical-align:middle;border-right:1px solid #d0d0d0;padding-right:18px;">
+      <div style="font-size:17px;font-weight:700;color:#1a73e8;letter-spacing:0.3px;">AHMAD YASIN</div>
+      <div style="font-size:13px;color:#444;margin-top:2px;">Founder &amp; CEO &mdash; Nexariza Ai</div>
+    </td>
+    <!-- Contact details (clean text + single official website link) -->
+    <td style="vertical-align:middle;padding-left:18px;font-size:13px;color:#333;line-height:1.9;">
+      <div>&#128222;&nbsp;+92 370 7348001</div>
+      <div>&#128231;&nbsp;admin@nexariza.com</div>
+      <div>&#127760;&nbsp;<a href="https://www.nexariza.com" style="color:#1a73e8;text-decoration:none;font-weight:600;">www.nexariza.com</a></div>
+      <div>&#128205;&nbsp;Lahore, Punjab, Pakistan.</div>
+    </td>
+  </tr>
+</table>
+<p style="margin-top:16px;font-size:11px;color:#888;border-top:1px solid #e0e0e0;padding-top:10px;">
+  This email and any attachments are confidential and intended solely for the recipient.
+  If you are not the intended recipient, please notify the sender and delete this message.
+</p>
+"""
+
+# Sign-off patterns the AI might generate — stripped before appending hardcoded signature
+_SIGNOFF_PATTERNS = (
+    "best,", "best regards,", "kind regards,", "regards,", "sincerely,",
+    "cheers,", "thanks,", "thank you,", "warm regards,",
+    "hassan nadeem", "ahmad yasin", "nexariza ai", "nexariza",
+    "+92", "admin@nexariza", "www.nexariza", "contact@nexariza",
+)
+
+
+def _strip_ai_signoff(plain_body: str) -> str:
+    """Remove any trailing sign-off lines the AI generated so we can append our own."""
+    lines = plain_body.splitlines()
+    while lines:
+        last = lines[-1].strip().lower()
+        if not last or any(last.startswith(p) for p in _SIGNOFF_PATTERNS):
+            lines.pop()
+        else:
+            break
+    return "\n".join(lines).strip()
+
+
 def build_html_email(plain_body: str) -> str:
     """
-    Wraps a plain-text email body in a fully branded Nexariza HTML email.
-    - Converts newlines to <br> for HTML rendering
-    - Appends a professional signature with the Nexariza logo
-    Returns the complete HTML string.
+    Wraps a plain-text email body in clean, minimal HTML and appends the
+    official Nexariza branded HTML signature (Ahmad Yasin, logo, contact info).
     """
-    # Convert plain text body to HTML paragraphs
-    html_body = plain_body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # Strip any AI-generated sign-off so only the HTML signature appears at the bottom
+    clean_body = _strip_ai_signoff(plain_body)
+    if not clean_body.rstrip().lower().endswith(("best,", "best", "regards,", "regards", "cheers,", "cheers")):
+        clean_body = clean_body.rstrip() + "\n\nBest,"
+
+    html_body = clean_body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     paragraphs = "".join(
-        f"<p>{line}</p>" if line.strip() else "<br>"
+        f"<p style='margin:0 0 16px 0;font-size:15px;color:#111827;line-height:1.6;'>{line}</p>" if line.strip() else "<br>"
         for line in html_body.splitlines()
     )
 
     return f"""<!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Nexariza AI</title>
 </head>
-<body style="margin:0;padding:0;background-color:#f4f6f9;font-family:'Segoe UI',Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f9;padding:32px 0;">
-    <tr>
-      <td align="center">
-        <table width="620" cellpadding="0" cellspacing="0"
-               style="background:#ffffff;border-radius:12px;
-                      box-shadow:0 4px 24px rgba(0,0,0,0.08);
-                      overflow:hidden;max-width:620px;">
-
-          <!-- ── Header bar ── -->
-          <tr>
-            <td style="background:linear-gradient(135deg,#0a1628 0%,#0d2b5e 100%);
-                        padding:28px 40px;text-align:center;">
-              <a href="{NEXARIZA_WEBSITE}" target="_blank" style="text-decoration:none;">
-                <img src="{NEXARIZA_LOGO_URL}"
-                     alt="Nexariza AI"
-                     width="72" height="72"
-                     style="border-radius:50%;border:2px solid rgba(255,255,255,0.15);
-                            display:block;margin:0 auto 10px auto;" />
-                <span style="color:#ffffff;font-size:22px;font-weight:700;
-                              letter-spacing:1px;display:block;">NEXARIZA AI</span>
-                <span style="color:#5b9bd5;font-size:12px;
-                              letter-spacing:2px;text-transform:uppercase;">
-                  Intelligent Automation &bull; Limitless Growth
-                </span>
-              </a>
-            </td>
-          </tr>
-
-          <!-- ── Email body ── -->
-          <tr>
-            <td style="padding:36px 40px 24px 40px;color:#1a1a2e;font-size:15px;
-                        line-height:1.75;border-bottom:1px solid #eef0f4;">
-              {paragraphs}
-            </td>
-          </tr>
-
-          <!-- ── Signature ── -->
-          <tr>
-            <td style="padding:24px 40px 20px 40px;">
-              <table cellpadding="0" cellspacing="0">
-                <tr>
-                  <!-- Logo thumbnail -->
-                  <td style="padding-right:16px;vertical-align:middle;">
-                    <img src="{NEXARIZA_LOGO_URL}"
-                         alt="Nexariza"
-                         width="52" height="52"
-                         style="border-radius:50%;display:block;" />
-                  </td>
-                  <!-- Name & title -->
-                  <td style="vertical-align:middle;border-left:3px solid #1a6ed8;padding-left:14px;">
-                    <p style="margin:0;font-size:15px;font-weight:700;color:#0d2b5e;">
-                      Hassan Nadeem
-                    </p>
-                    <p style="margin:2px 0 6px 0;font-size:12px;color:#5b9bd5;
-                               text-transform:uppercase;letter-spacing:0.8px;">
-                      AI Solutions Specialist &bull; Nexariza AI
-                    </p>
-                    <p style="margin:0;font-size:12px;color:#555;">
-                      <a href="mailto:{NEXARIZA_EMAIL}"
-                         style="color:#1a6ed8;text-decoration:none;">{NEXARIZA_EMAIL}</a>
-                      &nbsp;|&nbsp;
-                      <a href="tel:{NEXARIZA_PHONE}"
-                         style="color:#555;text-decoration:none;">{NEXARIZA_PHONE}</a>
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- ── CTA buttons ── -->
-          <tr>
-            <td style="padding:0 40px 28px 40px;">
-              <table cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding-right:10px;">
-                    <a href="{NEXARIZA_WEBSITE}" target="_blank"
-                       style="display:inline-block;background:linear-gradient(135deg,#1a6ed8,#0d2b5e);
-                              color:#ffffff;font-size:12px;font-weight:600;
-                              padding:9px 20px;border-radius:6px;text-decoration:none;
-                              letter-spacing:0.5px;">
-                      Visit Website
-                    </a>
-                  </td>
-                  <td>
-                    <a href="{NEXARIZA_LINKEDIN}" target="_blank"
-                       style="display:inline-block;background:#0077b5;
-                              color:#ffffff;font-size:12px;font-weight:600;
-                              padding:9px 20px;border-radius:6px;text-decoration:none;
-                              letter-spacing:0.5px;">
-                      LinkedIn
-                    </a>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- ── Footer ── -->
-          <tr>
-            <td style="background:#f8f9fc;padding:14px 40px;
-                        border-top:1px solid #eef0f4;text-align:center;">
-              <p style="margin:0;font-size:11px;color:#aaa;line-height:1.5;">
-                &copy; 2024 Nexariza AI &bull; Lahore, Pakistan &bull;
-                <a href="{NEXARIZA_WEBSITE}" style="color:#1a6ed8;text-decoration:none;">
-                  nexariza.com
-                </a>
-                <br>
-                You are receiving this email because you match our ideal client profile.
-                To unsubscribe, reply with "Unsubscribe".
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
+<body style="margin:0;padding:20px;font-family:Arial, Helvetica, sans-serif;font-size:15px;color:#111827;background-color:#ffffff;line-height:1.6;">
+  <div style="max-width:620px;margin:0;">
+    {paragraphs}
+    {_NEXARIZA_HTML_SIGNATURE}
+  </div>
 </body>
 </html>"""
 
@@ -190,12 +129,22 @@ def build_html_email(plain_body: str) -> str:
 # ── SMTP Config ───────────────────────────────────────────────────────────────
 
 def get_smtp_config() -> dict:
-    """Load SMTP config from environment variables."""
+    """Load Primary SMTP config (contact@nexariza.com) from environment variables."""
     return {
         "server":   os.getenv("SMTP_SERVER", "smtp.zoho.com"),
         "port":     int(os.getenv("SMTP_PORT", "465")),
         "email":    os.getenv("SENDER_EMAIL", ""),
         "password": os.getenv("SENDER_PASSWORD", ""),
+    }
+
+
+def get_sales_smtp_config() -> dict:
+    """Load Sales SMTP config (sales@nexariza.com) from environment variables."""
+    return {
+        "server":   os.getenv("SALES_SMTP_SERVER", "smtp.zoho.com"),
+        "port":     int(os.getenv("SALES_SMTP_PORT", "465")),
+        "email":    os.getenv("SALES_SENDER_EMAIL", "sales@nexariza.com"),
+        "password": os.getenv("SALES_SENDER_PASSWORD", ""),
     }
 
 
@@ -279,36 +228,88 @@ async def send_email(
     sender_name: str = "Hassan Nadeem | Nexariza AI",
     is_html: bool = False,
     smtp_config: Optional[dict] = None,
+    is_important: bool = False,
+    attachments: Optional[list] = None,
 ) -> bool:
     """
-    Send a single email via SSL SMTP.
+    Send a single email via SSL SMTP with full deliverability optimization.
     If is_html=True, body is sent as-is (already HTML).
     If is_html=False (plain text), body is automatically wrapped in the
     branded Nexariza HTML template with logo before sending.
+    If is_important=True, flags the message as High Priority/Urgent across
+    all major mail clients (Outlook, Apple Mail, Gmail, Thunderbird).
+    attachments: List of dicts with keys: 'filename', 'content' (bytes or str),
+                 optional 'maintype' (default: 'text'), optional 'subtype' (default: 'html').
+    NOTE: is_important should NOT be used for cold emails (it's a spam signal).
     Returns True on success, False on failure.
     """
+    # ── Pre-send Email Address Validation ────────────────────────────────────
+    # Fast, synchronous check: syntax + disposable domain + role-based prefix.
+    # This is a final safety net — raises ValueError before any SMTP connection
+    # is attempted, regardless of whether the caller validated upstream.
+    address_check = analyze_email(recipient)
+    if not address_check["is_valid"]:
+        reason = address_check.get("reason", "Invalid address")
+        logger.warning(
+            f"[send_email] Blocked send to '{recipient}': {reason}"
+        )
+        raise ValueError(
+            f"Cannot send to '{recipient}': {reason}"
+        )
+
     config = smtp_config or get_smtp_config()
     sender_email = config["email"]
 
     if not sender_email:
         raise ValueError("SENDER_EMAIL is not configured in .env")
 
-    # Always upgrade plain text to branded HTML
+    # Plain text fallback matches exact body (no artificial marketing footers)
+    plain_fallback = body
+
+    # Always upgrade plain text to minimal clean HTML
     if not is_html:
         html_content = build_html_email(body)
-        plain_fallback = body
     else:
         html_content = body
-        plain_fallback = "Please enable HTML to view this email."
 
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = f"{sender_name} <{sender_email}>"
     msg["To"] = recipient
 
+    if is_important:
+        msg["Importance"] = "High"
+        msg["X-Priority"] = "1"
+        msg["Priority"] = "urgent"
+        msg["X-MSMail-Priority"] = "High"
+
     # Set plain-text fallback, then attach HTML as preferred alternative
     msg.set_content(plain_fallback)
     msg.add_alternative(html_content, subtype="html")
+
+    # Add attachments if provided
+    if attachments:
+        for att in attachments:
+            fname = att.get("filename", "attachment.html")
+            raw_data = att.get("content", "")
+            if isinstance(raw_data, str):
+                raw_bytes = raw_data.encode("utf-8")
+            else:
+                raw_bytes = raw_data
+            mtype = att.get("maintype", "text")
+            stype = att.get("subtype", "html")
+            msg.add_attachment(raw_bytes, maintype=mtype, subtype=stype, filename=fname)
+
+    # ── Deliverability Agent: Apply smart headers ─────────────────────────
+    # Adds proper Message-ID, Date, Reply-To, MIME-Version headers and
+    # removes spam-signal headers (X-Mailer, Precedence, priority headers
+    # on cold emails) to maximize inbox placement.
+    try:
+        from services.deliverability_agent import apply_deliverability_headers
+        sender_domain = sender_email.split("@")[-1] if "@" in sender_email else "nexariza.com"
+        apply_deliverability_headers(msg, sender_domain=sender_domain)
+    except Exception as e:
+        logger.warning(f"Deliverability header injection skipped: {e}")
 
     context = ssl.create_default_context()
 
@@ -323,6 +324,15 @@ async def send_email(
             tls_context=context
         )
         logger.info(f"Email sent successfully to {recipient}")
+
+        # ── Deliverability Agent: Track send for warmup + content fingerprint
+        try:
+            from services.deliverability_agent import record_send, register_sent_content
+            record_send()
+            register_sent_content(subject, body)
+        except Exception as e:
+            logger.warning(f"Deliverability tracking skipped: {e}")
+
         return True
 
     except aiosmtplib.SMTPAuthenticationError:
@@ -338,8 +348,20 @@ async def send_email(
 
 # ── SMTP Health Check ─────────────────────────────────────────────────────────
 
+# Cache SMTP health result for 60s to avoid hammering the SMTP server
+_smtp_health_cache: dict = {}
+_smtp_health_cache_time: float = 0.0
+_SMTP_CACHE_TTL = 60.0  # seconds
+
 async def test_smtp_connection() -> dict:
-    """Test SMTP connection and return status dict."""
+    """Test SMTP connection and return status dict (cached for 60s)."""
+    global _smtp_health_cache, _smtp_health_cache_time
+    import time as _time
+    now = _time.monotonic()
+    if _smtp_health_cache and (now - _smtp_health_cache_time) < _SMTP_CACHE_TTL:
+        logger.debug("SMTP health: returning cached result")
+        return _smtp_health_cache
+
     config = get_smtp_config()
     context = ssl.create_default_context()
     try:
@@ -352,14 +374,18 @@ async def test_smtp_connection() -> dict:
         await smtp.connect()
         await smtp.login(config["email"], config["password"])
         await smtp.quit()
-        return {
+        result = {
             "status": "ok",
             "message": f"Successfully connected and authenticated as {config['email']}"
         }
     except aiosmtplib.SMTPAuthenticationError:
-        return {"status": "error", "message": "Authentication failed. Check credentials in .env"}
+        result = {"status": "error", "message": "Authentication failed. Check credentials in .env"}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        result = {"status": "error", "message": str(e)}
+
+    _smtp_health_cache = result
+    _smtp_health_cache_time = now
+    return result
 
 
 # ── Deep Email Verification Engine ────────────────────────────────────────────
@@ -385,22 +411,29 @@ async def read_smtp_response(reader) -> tuple[int, str]:
             break
     return code, "\n".join(lines)
 
-async def check_mx_smtp(mx_host: str, email: str, sender_email: str, timeout: float = 5.0) -> dict:
-    """Connects to a single MX server on port 25 and checks if mailbox exists."""
+
+async def _smtp_handshake_port25(
+    mx_host: str, email: str, sender_email: str, timeout: float
+) -> dict:
+    """
+    Raw TCP port-25 SMTP handshake (EHLO/HELO → MAIL FROM → RCPT TO).
+    Most accurate method — no authentication required — but often blocked
+    by cloud providers and consumer ISPs.
+    """
     try:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(mx_host, 25),
             timeout=timeout
         )
     except (asyncio.TimeoutError, ConnectionRefusedError, socket.gaierror, OSError) as e:
-        return {"status": "error", "message": f"Connection failed: {str(e)}", "connectable": False}
+        return {"status": "error", "message": f"Port 25 blocked: {str(e)}", "connectable": False, "port": 25}
 
     try:
         # Read server welcome banner
         code, msg = await asyncio.wait_for(read_smtp_response(reader), timeout=timeout)
         if code != 220:
-            return {"status": "error", "message": f"Unexpected banner code {code}: {msg}", "connectable": True}
-        
+            return {"status": "error", "message": f"Unexpected banner code {code}: {msg}", "connectable": True, "port": 25}
+
         # Send EHLO
         writer.write(b"EHLO nexariza.com\r\n")
         await writer.drain()
@@ -411,32 +444,29 @@ async def check_mx_smtp(mx_host: str, email: str, sender_email: str, timeout: fl
             await writer.drain()
             code, msg = await asyncio.wait_for(read_smtp_response(reader), timeout=timeout)
             if code != 250:
-                return {"status": "error", "message": f"HELO failed {code}: {msg}", "connectable": True}
-        
+                return {"status": "error", "message": f"EHLO/HELO rejected {code}: {msg}", "connectable": True, "port": 25}
+
         # Send MAIL FROM
         writer.write(f"MAIL FROM:<{sender_email}>\r\n".encode())
         await writer.drain()
         code, msg = await asyncio.wait_for(read_smtp_response(reader), timeout=timeout)
         if code != 250:
-            return {"status": "error", "message": f"MAIL FROM failed {code}: {msg}", "connectable": True}
-        
+            return {"status": "error", "message": f"MAIL FROM rejected {code}: {msg}", "connectable": True, "port": 25}
+
         # Send RCPT TO
         writer.write(f"RCPT TO:<{email}>\r\n".encode())
         await writer.drain()
         code, msg = await asyncio.wait_for(read_smtp_response(reader), timeout=timeout)
-        
-        mailbox_exists = False
+
+        mailbox_exists: Optional[bool] = None
         response_code = code
-        
         if code == 250 or code == 251:
             mailbox_exists = True
-        elif code >= 500 and code < 600:
+        elif 500 <= code < 600:
             mailbox_exists = False
-        else:
-            # 4xx or other temporary codes
-            mailbox_exists = None
-            
-        # Catch-all check: if recipient accepted, try a randomly generated address in the same session
+        # 4xx temporary codes → mailbox_exists stays None (unknown)
+
+        # Catch-all detection: send a random address in the same session
         is_catch_all = False
         if mailbox_exists is True:
             domain = email.split('@')[-1]
@@ -446,27 +476,182 @@ async def check_mx_smtp(mx_host: str, email: str, sender_email: str, timeout: fl
             code_fake, _ = await asyncio.wait_for(read_smtp_response(reader), timeout=timeout)
             if code_fake == 250 or code_fake == 251:
                 is_catch_all = True
-                
-        # Send QUIT
+
+        # Polite close
         writer.write(b"QUIT\r\n")
         await writer.drain()
-        
+
         return {
             "status": "success",
             "connectable": True,
+            "port": 25,
             "mailbox_exists": mailbox_exists,
             "is_catch_all": is_catch_all,
             "response_code": response_code,
-            "response_message": msg
+            "response_message": msg,
         }
     except Exception as e:
-        return {"status": "error", "message": f"SMTP handshake failed: {str(e)}", "connectable": True}
+        return {"status": "error", "message": f"Port 25 handshake error: {str(e)}", "connectable": True, "port": 25}
     finally:
         try:
             writer.close()
             await writer.wait_closed()
-        except:
+        except Exception:
             pass
+
+
+async def _smtp_handshake_port587(
+    mx_host: str, email: str, sender_email: str, timeout: float
+) -> dict:
+    """
+    STARTTLS port-587 SMTP handshake — fallback when port 25 is blocked.
+
+    Uses aiosmtplib to negotiate STARTTLS and then issues EHLO → MAIL FROM
+    → RCPT TO without completing authentication (we only need the RCPT TO
+    accept/reject decision, not a full authenticated session).
+
+    Reliability: slightly lower than port 25 because servers may require AUTH
+    before accepting RCPT TO on port 587, but many will still tell us whether
+    the mailbox exists before that point.
+    """
+    import ssl as _ssl
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(mx_host, 587),
+            timeout=timeout
+        )
+    except (asyncio.TimeoutError, ConnectionRefusedError, socket.gaierror, OSError) as e:
+        return {"status": "error", "message": f"Port 587 blocked: {str(e)}", "connectable": False, "port": 587}
+
+    try:
+        # Read banner
+        code, msg = await asyncio.wait_for(read_smtp_response(reader), timeout=timeout)
+        if code != 220:
+            return {"status": "error", "message": f"Port 587 banner error {code}: {msg}", "connectable": True, "port": 587}
+
+        # EHLO
+        writer.write(b"EHLO nexariza.com\r\n")
+        await writer.drain()
+        code, ehlo_msg = await asyncio.wait_for(read_smtp_response(reader), timeout=timeout)
+        if code != 250:
+            return {"status": "error", "message": f"Port 587 EHLO failed {code}: {ehlo_msg}", "connectable": True, "port": 587}
+
+        # STARTTLS upgrade (only if server advertises it)
+        if "STARTTLS" in ehlo_msg.upper():
+            writer.write(b"STARTTLS\r\n")
+            await writer.drain()
+            code, tls_msg = await asyncio.wait_for(read_smtp_response(reader), timeout=timeout)
+            if code == 220:
+                # Upgrade the connection to TLS
+                ctx = _ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = _ssl.CERT_NONE
+                transport = writer.transport
+                loop = asyncio.get_event_loop()
+                tls_transport = await loop.start_tls(
+                    transport, None, ctx, server_side=False, server_hostname=mx_host
+                )
+                # Rebuild reader/writer on the TLS transport
+                protocol = transport.get_protocol()
+                tls_transport.set_protocol(protocol)
+                writer = asyncio.StreamWriter(tls_transport, protocol, reader, loop)
+                # Re-EHLO after TLS upgrade
+                writer.write(b"EHLO nexariza.com\r\n")
+                await writer.drain()
+                code, _ = await asyncio.wait_for(read_smtp_response(reader), timeout=timeout)
+
+        # MAIL FROM (unauthenticated — some servers allow it, some require AUTH first)
+        writer.write(f"MAIL FROM:<{sender_email}>\r\n".encode())
+        await writer.drain()
+        code, msg = await asyncio.wait_for(read_smtp_response(reader), timeout=timeout)
+        if code != 250:
+            # Server requires AUTH before MAIL FROM — we can't go further,
+            # but the connection itself proved the MX is reachable.
+            writer.write(b"QUIT\r\n")
+            await writer.drain()
+            return {
+                "status": "error",
+                "message": f"Port 587 requires AUTH before MAIL FROM ({code}) — SMTP reachable but mailbox check inconclusive",
+                "connectable": True,
+                "port": 587,
+            }
+
+        # RCPT TO
+        writer.write(f"RCPT TO:<{email}>\r\n".encode())
+        await writer.drain()
+        code, msg = await asyncio.wait_for(read_smtp_response(reader), timeout=timeout)
+
+        mailbox_exists: Optional[bool] = None
+        response_code = code
+        if code == 250 or code == 251:
+            mailbox_exists = True
+        elif 500 <= code < 600:
+            mailbox_exists = False
+
+        # Catch-all detection
+        is_catch_all = False
+        if mailbox_exists is True:
+            domain = email.split('@')[-1]
+            random_email = f"nexariza_verify_rnd_{int(time.time())}@{domain}"
+            writer.write(f"RCPT TO:<{random_email}>\r\n".encode())
+            await writer.drain()
+            code_fake, _ = await asyncio.wait_for(read_smtp_response(reader), timeout=timeout)
+            if code_fake == 250 or code_fake == 251:
+                is_catch_all = True
+
+        writer.write(b"QUIT\r\n")
+        await writer.drain()
+
+        return {
+            "status": "success",
+            "connectable": True,
+            "port": 587,
+            "mailbox_exists": mailbox_exists,
+            "is_catch_all": is_catch_all,
+            "response_code": response_code,
+            "response_message": msg,
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Port 587 handshake error: {str(e)}", "connectable": True, "port": 587}
+    finally:
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
+async def check_mx_smtp(
+    mx_host: str,
+    email: str,
+    sender_email: str,
+    timeout: float = 5.0,
+) -> dict:
+    """
+    SMTP mailbox ping with automatic port fallback (medium reliability).
+
+    Strategy:
+      1. Try port 25 (raw TCP, no auth) — highest accuracy, often blocked on
+         cloud/ISP networks.
+      2. If port 25 is not connectable, fall back to port 587 (STARTTLS) —
+         slightly lower accuracy because some servers demand AUTH before RCPT TO,
+         but confirms reachability and often still reveals invalid mailboxes.
+
+    The result dict always includes a ``port`` key (25 or 587) indicating
+    which port produced the definitive answer.
+    """
+    # ── Attempt 1: port 25 ───────────────────────────────────────────────────
+    result25 = await _smtp_handshake_port25(mx_host, email, sender_email, timeout)
+    if result25["connectable"]:
+        # Port 25 was reachable — trust its verdict regardless of success/error
+        return result25
+
+    # ── Attempt 2: port 587 (STARTTLS fallback) ──────────────────────────────
+    logger.debug(
+        f"[SMTP] Port 25 blocked for {mx_host} — retrying on port 587 (STARTTLS)"
+    )
+    result587 = await _smtp_handshake_port587(mx_host, email, sender_email, timeout)
+    return result587
 
 async def get_mx_records(domain: str) -> list[str]:
     """Resolves domain MX records, sorted by priority."""
@@ -620,15 +805,17 @@ async def verify_email_deep(email: str, sender_email: Optional[str] = None) -> d
             "is_free": is_free
         }
 
-    # 3. SMTP Handshake Check
+    # 3. SMTP Handshake Check (port 25 with port 587 STARTTLS fallback)
     if not sender_email:
         sender_email = get_smtp_config().get("email") or "verify@nexariza.com"
-        
+
     smtp_checked = False
     mailbox_exists = None
     is_catch_all = False
     smtp_error = None
-    
+    smtp_port_used: Optional[int] = None
+    smtp_method = "none"  # "port25" | "port587_starttls" | "none"
+
     smtp_result = None
     for mx_host in mail_servers:
         if not mx_host:
@@ -636,6 +823,8 @@ async def verify_email_deep(email: str, sender_email: Optional[str] = None) -> d
         smtp_result = await check_mx_smtp(mx_host, email, sender_email)
         if smtp_result["connectable"]:
             smtp_checked = True
+            smtp_port_used = smtp_result.get("port")
+            smtp_method = "port25" if smtp_port_used == 25 else "port587_starttls"
             if smtp_result["status"] == "success":
                 mailbox_exists = smtp_result["mailbox_exists"]
                 is_catch_all = smtp_result["is_catch_all"]
@@ -643,42 +832,61 @@ async def verify_email_deep(email: str, sender_email: Optional[str] = None) -> d
                 smtp_error = smtp_result["message"]
             break
         else:
+            # Neither port was connectable — accumulate error and try next MX
             smtp_error = smtp_result["message"]
-            
+
     # Calculate overall deliverability status
     status = "unknown"
     reason = "DNS valid, but SMTP connection failed"
     is_valid = True
-    
+
     if smtp_checked:
         if mailbox_exists is True:
             if is_catch_all:
                 status = "catch_all"
-                reason = "Catch-all domain (accepts all email addresses)"
+                reason = (
+                    f"Catch-all domain — accepts all addresses (verified via "
+                    f"{'port 25' if smtp_port_used == 25 else 'port 587 STARTTLS'})"
+                )
                 is_valid = True
             else:
                 status = "deliverable"
-                reason = "Mailbox exists and is deliverable"
+                reason = (
+                    f"Mailbox confirmed deliverable (verified via "
+                    f"{'port 25' if smtp_port_used == 25 else 'port 587 STARTTLS'})"
+                )
                 is_valid = True
         elif mailbox_exists is False:
             status = "undeliverable"
-            reason = f"Recipient server rejected mailbox: {smtp_result.get('response_message', 'No mailbox found')}"
+            reason = (
+                f"Mailbox rejected by recipient server "
+                f"(code {smtp_result.get('response_code', '5xx')} via "
+                f"{'port 25' if smtp_port_used == 25 else 'port 587 STARTTLS'}): "
+                f"{smtp_result.get('response_message', 'no mailbox found')}"
+            )
             is_valid = False
         else:
+            # 4xx temporary / AUTH-required — treat as unknown (safe fallback)
             status = "unknown"
-            reason = f"Inconclusive SMTP response: {smtp_result.get('response_message', 'Error')}"
+            reason = (
+                f"Inconclusive SMTP response via port {smtp_port_used}: "
+                f"{smtp_result.get('response_message') or smtp_error or 'temporary error'}"
+            )
             is_valid = True
     else:
         status = "unknown"
-        reason = f"SMTP check skipped (Port 25 blocked?): {smtp_error or 'Connection failed'}"
-        is_valid = True # Graceful fallback
+        reason = (
+            f"SMTP ping skipped — both port 25 and port 587 unreachable: "
+            f"{smtp_error or 'connection refused'}"
+        )
+        is_valid = True  # Graceful fallback — DNS was valid
         
     # Enforce disposable blocking
     if is_valid and is_disposable:
         status = "undeliverable"
         reason = "Blocked: Disposable email domain"
         is_valid = False
-        
+
     return {
         "email": email,
         "is_valid": is_valid,
@@ -692,5 +900,8 @@ async def verify_email_deep(email: str, sender_email: Optional[str] = None) -> d
         "is_catch_all": is_catch_all,
         "is_disposable": is_disposable,
         "is_role_based": is_role_based,
-        "is_free": is_free
+        "is_free": is_free,
+        # ── SMTP ping metadata (medium-reliability check) ────────────────
+        "smtp_port_used": smtp_port_used,        # 25 | 587 | None
+        "smtp_method": smtp_method,              # "port25" | "port587_starttls" | "none"
     }

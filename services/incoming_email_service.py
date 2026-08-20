@@ -78,6 +78,59 @@ def get_email_body(msg: email.message.Message) -> str:
     return ""
 
 
+_BOUNCE_ADDR_PATTERNS = [
+    # RFC 3464 DSN: "Final-Recipient: rfc822; user@domain.com"
+    re.compile(r"Final-Recipient\s*:\s*rfc822\s*;\s*([^\s\r\n]+)", re.IGNORECASE),
+    # Google: "Your message wasn't delivered to user@domain.com"
+    re.compile(r"wasn't delivered to\s+([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})", re.IGNORECASE),
+    # Generic "delivery failed to user@domain.com"
+    re.compile(r"delivery[^\n]*?to\s+<?([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})>?", re.IGNORECASE),
+    # "failed to deliver ... <user@domain.com>"
+    re.compile(r"<([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})>"),
+]
+
+_BOUNCE_REASON_PATTERNS = [
+    # RFC 3464 DSN: "Diagnostic-Code: smtp; 550 ..."
+    re.compile(r"Diagnostic-Code\s*:.*?(\d{3}[^\r\n]+)", re.IGNORECASE | re.DOTALL),
+    # Status code
+    re.compile(r"Status\s*:\s*(\d\.\d\.\d[^\r\n]*)", re.IGNORECASE),
+    # Plain English reason (Google style)
+    re.compile(r"(address couldn't be found[^\.\n]*|user doesn't exist[^\.\n]*|no such user[^\.\n]*|mailbox not found[^\.\n]*|account.*?doesn't exist[^\.\n]*)", re.IGNORECASE),
+]
+
+
+def _extract_bounced_address(body: str, subject: str) -> str:
+    """
+    Parse a bounce notification body (and subject) to find the failed recipient
+    email address. Returns empty string if not found.
+    """
+    search_text = f"{subject}\n{body}"
+    for pattern in _BOUNCE_ADDR_PATTERNS:
+        m = pattern.search(search_text)
+        if m:
+            addr = m.group(1).strip().strip("<>").lower()
+            # Basic sanity check
+            if "@" in addr and "." in addr.split("@")[-1]:
+                return addr
+    return ""
+
+
+def _extract_bounce_reason(body: str, subject: str) -> str:
+    """
+    Parse a bounce notification body to find a human-readable failure reason.
+    Defaults to 'Delivery failure' if nothing specific is found.
+    """
+    search_text = f"{subject}\n{body}"
+    for pattern in _BOUNCE_REASON_PATTERNS:
+        m = pattern.search(search_text)
+        if m:
+            return m.group(1).strip()[:200]
+    # Fallback: use subject line
+    if subject:
+        return subject[:150]
+    return "Delivery failure"
+
+
 async def check_inbox_and_reply() -> dict:
     """
     Connect to IMAP, scan UNSEEN emails, detect replies, generate responses,
@@ -130,7 +183,29 @@ async def check_inbox_and_reply() -> dict:
                 mail.store(num, "+FLAGS", "\\Seen")
                 processed_count += 1
 
+                # ── Bounce detection: mailer-daemon delivery failure ──────────
+                sender_lower = sender_email.lower()
+                is_bounce = (
+                    "mailer-daemon" in sender_lower
+                    or "postmaster" in sender_lower
+                    or "delivery" in sender_lower
+                )
+                if is_bounce:
+                    body_content = get_email_body(msg)
+                    # Try to extract the failed recipient from common bounce patterns
+                    failed_addr = _extract_bounced_address(body_content, subject)
+                    if failed_addr:
+                        from services.history_service import register_bounce
+                        # Pull a reason from the subject or body
+                        reason = _extract_bounce_reason(body_content, subject)
+                        register_bounce(email=failed_addr, reason=reason)
+                        logger.warning(
+                            f"[Bounce] Auto-detected hard bounce for {failed_addr}: {reason}"
+                        )
+                    continue  # Don't try to auto-reply to mailer-daemon
+
                 # Check if we should reply
+
                 if not sender_email or sender_email == config["email"].lower():
                     # Skip empty sender or emails from ourselves
                     continue

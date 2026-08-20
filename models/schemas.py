@@ -132,6 +132,9 @@ class EmailVerificationResponse(BaseModel):
     is_disposable: bool
     is_role_based: bool
     is_free: bool
+    # SMTP ping metadata — which port/method was used
+    smtp_port_used: Optional[int] = None   # 25 | 587 | None (if unreachable)
+    smtp_method: Optional[str] = None      # "port25" | "port587_starttls" | "none"
 
 
 class CampaignStatusResponse(BaseModel):
@@ -144,3 +147,75 @@ class CampaignStatusResponse(BaseModel):
     skipped: int = 0
     results: List[ClientResult] = []
     current_lead: Optional[str] = None
+
+
+class SpamCheckRequest(BaseModel):
+    subject: str
+    body: str
+
+
+class SpamCheckResponse(BaseModel):
+    is_clean: bool
+    warnings: List[str]
+    spam_score: int
+    cleaned_subject: str
+    cleaned_body: str
+
+
+# ── Internship Offer Letter & ID Card Models ────────────────────────────────
+
+class InternInput(BaseModel):
+    name: str
+    email: str
+    role: Optional[str] = "Software Engineering Intern"
+    department: Optional[str] = "Engineering & AI"
+    start_date: Optional[str] = "September 1, 2026"
+    duration: Optional[str] = "3 Months"
+    location: Optional[str] = "Remote / Hybrid"
+    intern_id: Optional[str] = None
+    phone: Optional[str] = None
+    resume_url: Optional[str] = None
+    cover_letter: Optional[str] = None
+    experience: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    portfolio_url: Optional[str] = None
+    skills: Optional[str] = None
+    availability: Optional[str] = None
+    salary_exp: Optional[str] = None
+    status: Optional[str] = None
+    created_at: Optional[str] = None
+    additional_notes: Optional[str] = None
+
+
+class InternshipConfigRequest(BaseModel):
+    company_name: str = "Nexariza AI Technologies"
+    hr_name: str = "Ahmad Yasin"
+    hr_title: str = "Founder & CEO"
+    hr_email: str = "contact@nexariza.com"
+    custom_note: Optional[str] = "We are thrilled to welcome you to our innovation team!"
+
+
+class InternshipSingleRequest(BaseModel):
+    intern: InternInput
+    config: Optional[InternshipConfigRequest] = None
+    mode: CampaignMode = CampaignMode.dry_run
+
+
+class InternshipBatchRequest(BaseModel):
+    interns: List[InternInput]
+    config: Optional[InternshipConfigRequest] = None
+    mode: CampaignMode = CampaignMode.dry_run
+    delay_seconds: int = 10
+
+
+class InternshipResult(BaseModel):
+    intern_id: str
+    name: str
+    email: str
+    role: str
+    status: str          # "sent" | "previewed" | "failed" | "skipped"
+    application_type: Optional[str] = "internship_offer"  # "internship_offer" | "job_response"
+    subject: Optional[str] = None
+    error: Optional[str] = None
+
+
