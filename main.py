@@ -86,6 +86,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Server start time for uptime tracking
+_server_start_time = time.time()
+
 # In-memory store for last campaign stats
 _last_campaign: Optional[CampaignResponse] = None
 
@@ -701,20 +704,45 @@ async def root():
 
 
 @app.get("/health", tags=["Info"])
-async def health_check():
-    """Returns API health and SMTP connection status (non-blocking, 5s timeout)."""
-    try:
-        smtp = await asyncio.wait_for(test_smtp_connection(), timeout=5.0)
-    except asyncio.TimeoutError:
-        smtp = {"status": "error", "message": "SMTP check timed out after 5s"}
-    except Exception as e:
-        smtp = {"status": "error", "message": str(e)}
+async def health_check(check_smtp: bool = False):
+    """
+    Health check endpoint for Render/UptimeRobot and monitoring.
+    Returns status, server uptime, and timestamp.
+    Pass ?check_smtp=true to also test the SMTP server connection.
+    """
+    uptime_seconds = int(time.time() - _server_start_time)
+    hours, remainder = divmod(uptime_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    uptime_str = f"{hours}h {minutes}m {seconds}s"
+
+    response = {
+        "status": "ok",
+        "api": "online",
+        "uptime": uptime_str,
+        "uptime_seconds": uptime_seconds,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+        "gemini_key_set": bool(os.getenv("GROQ_API_KEY") or os.getenv("GEMINI_API_KEY")),
+    }
+
+    if check_smtp:
+        try:
+            smtp = await asyncio.wait_for(test_smtp_connection(), timeout=5.0)
+        except asyncio.TimeoutError:
+            smtp = {"status": "error", "message": "SMTP check timed out after 5s"}
+        except Exception as e:
+            smtp = {"status": "error", "message": str(e)}
+        response["smtp"] = smtp
+
+    return response
+
+
+@app.get("/ping", tags=["Info"])
+async def ping():
+    """Ultra-lightweight ping route specifically for UptimeRobot / Keep-Alive monitors."""
     return {
-        "api": "ok",
-        "smtp": smtp,
-        "gemini_key_set": bool(
-            os.getenv("GROQ_API_KEY")
-        ),
+        "status": "pong",
+        "uptime_seconds": int(time.time() - _server_start_time),
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
     }
 
 
